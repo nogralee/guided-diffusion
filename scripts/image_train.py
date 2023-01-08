@@ -3,7 +3,8 @@ Train a diffusion model on images.
 """
 
 import argparse
-
+import sys
+sys.path.append('./')
 from guided_diffusion import dist_util, logger
 from guided_diffusion.image_datasets import load_data
 from guided_diffusion.resample import create_named_schedule_sampler
@@ -19,14 +20,17 @@ from guided_diffusion.train_util import TrainLoop
 def main():
     args = create_argparser().parse_args()
 
+    # 分布式训练
     dist_util.setup_dist()
-    logger.configure()
+    
+    logger.configure('./log/')
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.to(dist_util.dev())
+    
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("creating data loader...")
@@ -38,6 +42,7 @@ def main():
     )
 
     logger.log("training...")
+    
     TrainLoop(
         model=model,
         diffusion=diffusion,
@@ -58,8 +63,13 @@ def main():
 
 
 def create_argparser():
+    """载入一些 diffusion 和 model 的默认配置
+
+    Returns:
+        _type_: _description_
+    """
     defaults = dict(
-        data_dir="",
+        data_dir="datasets/ILSVRC2012/",
         schedule_sampler="uniform",
         lr=1e-4,
         weight_decay=0.0,
@@ -73,6 +83,7 @@ def create_argparser():
         use_fp16=False,
         fp16_scale_growth=1e-3,
     )
+    # 载入一些 diffusion 和 model 的默认设置
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)

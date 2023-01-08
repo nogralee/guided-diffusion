@@ -54,7 +54,7 @@ def model_and_diffusion_defaults():
         attention_resolutions="16,8",
         channel_mult="",
         dropout=0.0,
-        class_cond=False,
+        class_cond=True,
         use_checkpoint=False,
         use_scale_shift_norm=True,
         resblock_updown=False,
@@ -114,6 +114,7 @@ def create_model_and_diffusion(
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
     )
+    
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
         learn_sigma=learn_sigma,
@@ -146,6 +147,7 @@ def create_model(
     use_new_attention_order=False,
 ):
     if channel_mult == "":
+        # 默认不是 multi channel
         if image_size == 512:
             channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
         elif image_size == 256:
@@ -153,6 +155,7 @@ def create_model(
         elif image_size == 128:
             channel_mult = (1, 1, 2, 3, 4)
         elif image_size == 64:
+            # 默认走这
             channel_mult = (1, 2, 3, 4)
         else:
             raise ValueError(f"unsupported image size: {image_size}")
@@ -160,9 +163,12 @@ def create_model(
         channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split(","))
 
     attention_ds = []
+    
+    # attention 的 reslution 是 16
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
-
+    
+    # 其实就是简单的返回 U-Net model
     return UNetModel(
         image_size=image_size,
         in_channels=3,
@@ -395,15 +401,21 @@ def create_gaussian_diffusion(
     rescale_learned_sigmas=False,
     timestep_respacing="",
 ):
+    # 确定 beta schedule
     betas = gd.get_named_beta_schedule(noise_schedule, steps)
+    
     if use_kl:
         loss_type = gd.LossType.RESCALED_KL
     elif rescale_learned_sigmas:
         loss_type = gd.LossType.RESCALED_MSE
     else:
         loss_type = gd.LossType.MSE
+        
+    # 跳过步数来进行采样
     if not timestep_respacing:
         timestep_respacing = [steps]
+        
+    # 确认 diffusion 预测的 均值和方差类型
     return SpacedDiffusion(
         use_timesteps=space_timesteps(steps, timestep_respacing),
         betas=betas,
@@ -425,6 +437,12 @@ def create_gaussian_diffusion(
 
 
 def add_dict_to_argparser(parser, default_dict):
+    """通过 default_dict 来初始化一个 parser
+
+    Args:
+        parser (_type_): _description_
+        default_dict (_type_): _description_
+    """
     for k, v in default_dict.items():
         v_type = type(v)
         if v is None:

@@ -95,6 +95,7 @@ class Upsample(nn.Module):
         self.use_conv = use_conv
         self.dims = dims
         if use_conv:
+            # 卷积
             self.conv = conv_nd(dims, self.channels, self.out_channels, 3, padding=1)
 
     def forward(self, x):
@@ -401,23 +402,27 @@ class UNetModel(nn.Module):
     :param model_channels: base channel count for the model.
     :param out_channels: channels in the output Tensor.
     :param num_res_blocks: number of residual blocks per downsample.
+    
     :param attention_resolutions: a collection of downsample rates at which
         attention will take place. May be a set, list, or tuple.
         For example, if this contains 4, then at 4x downsampling, attention
         will be used.
+        
     :param dropout: the dropout probability.
-    :param channel_mult: channel multiplier for each level of the UNet.
+    :param channel_mult: channel multiplier for each level of the UNet.?
     :param conv_resample: if True, use learned convolutions for upsampling and
         downsampling.
     :param dims: determines if the signal is 1D, 2D, or 3D.
     :param num_classes: if specified (as an int), then this model will be
         class-conditional with `num_classes` classes.
     :param use_checkpoint: use gradient checkpointing to reduce memory usage.
+    
     :param num_heads: the number of attention heads in each attention layer.
     :param num_heads_channels: if specified, ignore num_heads and instead use
                                a fixed channel width per attention head.
     :param num_heads_upsample: works with num_heads to set a different number
                                of heads for upsampling. Deprecated.
+                               
     :param use_scale_shift_norm: use a FiLM-like conditioning mechanism.
     :param resblock_updown: use residual blocks for up/downsampling.
     :param use_new_attention_order: use a different attention pattern for potentially
@@ -449,8 +454,10 @@ class UNetModel(nn.Module):
         super().__init__()
 
         if num_heads_upsample == -1:
+            # 取头为 4
             num_heads_upsample = num_heads
 
+        # 默认为 64
         self.image_size = image_size
         self.in_channels = in_channels
         self.model_channels = model_channels
@@ -468,23 +475,31 @@ class UNetModel(nn.Module):
         self.num_heads_upsample = num_heads_upsample
 
         time_embed_dim = model_channels * 4
+        # time embedding 模块
+        # model_channels = 128, time_embed_dim= 512
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
 
+        # label embedding 或者说这里是添加的其他信息
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
-
+        # 这是什么没看懂？
         ch = input_ch = int(channel_mult[0] * model_channels)
+        # 为了给输入添加 time embedding, dim代表使用卷积的维度, n_channels, ch 输入输出channel, 3 代表卷积的 kernel size
         self.input_blocks = nn.ModuleList(
             [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))]
         )
+        
         self._feature_size = ch
         input_block_chans = [ch]
         ds = 1
+        
+        # input 部分
         for level, mult in enumerate(channel_mult):
+            # 根据 num_res_blocks 添加 n 个 resblock
             for _ in range(num_res_blocks):
                 layers = [
                     ResBlock(
@@ -497,6 +512,7 @@ class UNetModel(nn.Module):
                         use_scale_shift_norm=use_scale_shift_norm,
                     )
                 ]
+                # ch 是干嘛的？
                 ch = int(mult * model_channels)
                 if ds in attention_resolutions:
                     layers.append(
@@ -508,9 +524,12 @@ class UNetModel(nn.Module):
                             use_new_attention_order=use_new_attention_order,
                         )
                     )
+                    
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
+                # 将输入的序列存起来
                 input_block_chans.append(ch)
+                
             if level != len(channel_mult) - 1:
                 out_ch = ch
                 self.input_blocks.append(
@@ -535,7 +554,8 @@ class UNetModel(nn.Module):
                 input_block_chans.append(ch)
                 ds *= 2
                 self._feature_size += ch
-
+                
+        # 中间连接部分
         self.middle_block = TimestepEmbedSequential(
             ResBlock(
                 ch,
@@ -561,9 +581,11 @@ class UNetModel(nn.Module):
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
         )
+        
         self._feature_size += ch
 
         self.output_blocks = nn.ModuleList([])
+        # 输出部分和 input 呈镜像关系
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
@@ -609,6 +631,7 @@ class UNetModel(nn.Module):
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
 
+        # 最后的输出层
         self.out = nn.Sequential(
             normalization(ch),
             nn.SiLU(),
@@ -648,6 +671,7 @@ class UNetModel(nn.Module):
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
         if self.num_classes is not None:
+            print(f'label y {y.shape == (x.shape[0],)}')
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
 

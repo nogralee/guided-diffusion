@@ -40,6 +40,7 @@ def setup_dist():
     port = comm.bcast(_find_free_port(), root=0)
     os.environ["MASTER_PORT"] = str(port)
     dist.init_process_group(backend=backend, init_method="env://")
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 
 def dev():
@@ -47,7 +48,7 @@ def dev():
     Get the device to use for torch.distributed.
     """
     if th.cuda.is_available():
-        return th.device(f"cuda")
+        return th.device(f"cuda:0")
     return th.device("cpu")
 
 

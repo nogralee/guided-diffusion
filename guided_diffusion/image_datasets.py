@@ -5,6 +5,7 @@ from PIL import Image
 import blobfile as bf
 from mpi4py import MPI
 import numpy as np
+import os
 from torch.utils.data import DataLoader, Dataset
 
 
@@ -39,13 +40,23 @@ def load_data(
     if not data_dir:
         raise ValueError("unspecified data directory")
     all_files = _list_image_files_recursively(data_dir)
+    
     classes = None
     if class_cond:
+        
         # Assume classes are the first part of the filename,
         # before an underscore.
-        class_names = [bf.basename(path).split("_")[0] for path in all_files]
-        sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
-        classes = [sorted_classes[x] for x in class_names]
+        # class_names = [bf.basename(path).split("_")[0] for path in all_files]
+        # 对 class 排序，得到字典 {class, index}
+        # sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
+        # 将 class_names 转换为 index
+        # classes = [sorted_classes[x] for x in class_names]
+        # 针对 ILSVRC2012 validation
+        class_index = [ int(bf.basename(path).split("_")[2].split('.')[0])-1 for path in all_files]
+        labels = np.loadtxt('datasets/ILSVRC2012_validation_ground_truth.txt',dtype='int')
+        classes = [labels[x] for x in class_index]
+    
+    # 载入图片，以及其类别 y
     dataset = ImageDataset(
         image_size,
         all_files,
@@ -55,6 +66,8 @@ def load_data(
         random_crop=random_crop,
         random_flip=random_flip,
     )
+    
+    # 是否 shuffle
     if deterministic:
         loader = DataLoader(
             dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True
@@ -68,13 +81,25 @@ def load_data(
 
 
 def _list_image_files_recursively(data_dir):
+    """递归的添加图片文件
+
+    Args:
+        data_dir (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     results = []
     for entry in sorted(bf.listdir(data_dir)):
+        # 组合目录和文件名
         full_path = bf.join(data_dir, entry)
+        
         ext = entry.split(".")[-1]
         if "." in entry and ext.lower() in ["jpg", "jpeg", "png", "gif"]:
+            # 如果已经是图片，则直接 append
             results.append(full_path)
         elif bf.isdir(full_path):
+            # 如果是路径的话，递归的添加文件
             results.extend(_list_image_files_recursively(full_path))
     return results
 
@@ -94,6 +119,7 @@ class ImageDataset(Dataset):
         self.resolution = resolution
         self.local_images = image_paths[shard:][::num_shards]
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
+        # 图片处理方式
         self.random_crop = random_crop
         self.random_flip = random_flip
 
